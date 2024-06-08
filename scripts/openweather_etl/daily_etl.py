@@ -2,26 +2,52 @@ import requests
 import pendulum
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Union
 from pydantic import BaseModel, Field, ValidationError
+import os
+from dotenv import load_dotenv
+from pathlib import Path
+import json
 
-# EXTRACT LOGIC
+load_dotenv()
+
+# EXTRACT LOGIC task 1
 # Load location make these a config file or add to a config file
-locations = [
-    {"name": "New York", "lat": 40.7128, "lon": -74.0059, "tz": "America/New_York"},
-    {"name": "Los Angeles", "lat": 34.0522, "lon": -118.2437, "tz": "America/Los_Angeles"},
+locations_config = [
+    {
+        "location_name": "New York City",
+        "lat": 40.7128,
+        "lon": -74.0059,
+        "tz": "America/New_York",
+    },
+    {
+        "location_name": "Philadelphia",
+        "lat": 39.9526,
+        "lon": -75.1652,
+        "tz": "America/New_York",
+    },
+    {
+        "location_name": "Los Angeles",
+        "lat": 34.0522,
+        "lon": -118.2437,
+        "tz": "America/Los_Angeles",
+    },
 ]
+
+OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
+local_tmp_dir = os.environ.get("local_tmp_dir")
 
 
 @dataclass(frozen=True)
 class OpenWeatherAPIDailyAggregateParameters:
+    location_name: str
     lat: float
     lon: float
     date: str
-    appid: str
-    units: str = 'standard'
-    lang: str = 'en'
-    url_endpoint: str = 'https://api.example.com/data'
+    appid: str | None
+    units: str = "imperial"
+    lang: str = "en"
+    url_endpoint: str = "https://api.openweathermap.org/data/3.0/onecall/day_summary"
 
     def __post_init__(self):
         if not -90 <= self.lat <= 90:
@@ -31,17 +57,79 @@ class OpenWeatherAPIDailyAggregateParameters:
 
     def get_url(self):
         url = f"{self.url_endpoint}?lat={self.lat}&lon={self.lon}&date={self.date}&appid={self.appid}&units={self.units}&lang={self.lang}"
+        # print(url)
         return url
 
 
-def generate_request_urls(request_parameters, url_endpoint) -> Tuple[str, ...]:
-    for location in locations:
-        lat, lon, tz = location["lat"], location["lon"], location["tz"]
-        url = f"https://api.example.com/data/2.5/weather/daily?lat={lat}&lon={lon}&date={date}&tz={tz}&appid={appid}"
-        yield url
+def set_target_date(logical_date: str) -> str:
+    # Parse the execution date string and create a datetime object
+    execution_datetime = pendulum.parse(logical_date)
+
+    # Subtract one day from the execution datetime to get the target date
+    target_date = execution_datetime.subtract(days=1)
+    print(target_date)
+
+    return target_date.to_date_string()
 
 
-# VALIDATION LOGIC
+def create_requests(
+    locations: [Dict[str, Union[str, float]]], api_key: str | None, date: str
+) -> List[OpenWeatherAPIDailyAggregateParameters]:
+    requests_to_send = []
+    for item in locations:
+        request = OpenWeatherAPIDailyAggregateParameters(
+            location_name=item["location_name"],
+            lat=item["lat"],
+            lon=item["lon"],
+            date=set_target_date(date),
+            appid=api_key,
+        )
+        requests_to_send.append(request)
+    return requests_to_send
+
+
+def fetch_weather_data(
+    get_requests: List[OpenWeatherAPIDailyAggregateParameters], rate_limit: int = 10
+) -> List[Dict]:
+    weather_data = []
+    for request in get_requests:
+        try:
+            response = requests.get(request.get_url())
+            response.raise_for_status()  # Raise an exception if the status code is not 200
+            data = response.json()
+            data["location_name"] = (
+                request.location_name
+            )  # Add the location name to the response data
+            weather_data.append(data)
+        except requests.exceptions.RequestException as e:
+            error_message = f"Error fetching weather data for {request.location_name}. Status code: {response.status_code}"
+            raise Exception(error_message) from e
+        time.sleep(rate_limit)  # Rate-limiting mechanism
+
+    return weather_data
+
+
+def write_list_to_json(data: List[Dict], filename: str) -> Path:
+    """
+    Writes a list of dictionaries to a JSON file.
+
+    Args:
+        data: A list of dictionaries to be written to the file.
+        filename: The name of the file to write to.
+    """
+    named_file = f"raw_source_{data[0]['date']}_{filename}.json"
+    # Get the temporary directory using pathlib
+    tmp_dir = Path(local_tmp_dir)  # Assuming the tmp folder is at the root
+    # Create the file path with the filename in the temporary directory
+    file_path = tmp_dir / named_file
+
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=4)  # Add indentation for readability
+
+    return file_path
+
+
+# VALIDATION LOGIC Task 2
 class Temperature(BaseModel):
     min: float
     max: float
@@ -56,6 +144,7 @@ class Wind(BaseModel):
 
 
 class WeatherData(BaseModel):
+    location_name: str
     lat: float
     lon: float
     tz: str
@@ -69,45 +158,50 @@ class WeatherData(BaseModel):
     wind: Wind
 
 
-# In your fetch_weather_data function
-def fetch_weather_data(urls: Tuple[str, ...], rate_limit: int = 5) -> Dict[str, WeatherData]:
-    weather_data = {}
-    failed_locations = []
-    for url in urls:
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            data = response.json()
-            location_name = data["name"]  # Assuming the location name is not part of the response
+def validate_json_data(json_path: Path, weather_data_model: type) -> List:
+    """
+    Validates the JSON data in the specified file against the provided Pydantic model.
 
-            try:
-                weather_obj = WeatherData(**data)
-                weather_data[location_name] = weather_obj
-                # task_logger.info(f"Successfully fetched weather data for {location_name}")
-            except ValidationError as e:
-                # task_logger.error(f"Validation error in the response for {location_name}: {e}")
-                failed_locations.append(location_name)
-        except requests.exceptions.RequestException as e:
-            # task_logger.error(f"Error fetching weather data for {location_name}: {e}")
-            failed_locations.append(location_name)
-        time.sleep(rate_limit)  # Rate-limiting mechanism
+    Args:
+        json_path (Path): The path to the JSON file.
+        weather_data_model (type): The Pydantic model class representing the expected data structure.
 
-    if failed_locations:
-        raise Exception(f"Failed to fetch weather data for the following locations: {', '.join(failed_locations)}")
+    Returns:
+        List: A list of validated data objects if successful, raises an exception otherwise.
 
-    return weather_data
+    Raises:
+        ValidationError: If the JSON data fails validation against the Pydantic model.
+    """
+
+    try:
+        with open(json_path, "r") as file:
+            json_data = json.load(file)
+
+        # Validate each item in the JSON data against the model
+        validated_data = [weather_data_model.parse_obj(item) for item in json_data]
+        return validated_data
+
+    except ValidationError as e:
+        raise Exception(f"Error validating JSON data: {e}") from e
 
 
-def get_target_date(logical_date: str) -> str:
-    # Parse the execution date string and create a datetime object
-    execution_datetime = pendulum.parse(logical_date)
+if __name__ == "__main__":
+    request_to_get = create_requests(
+        locations=locations_config, api_key=OPENWEATHER_API_KEY, date="2024-06-08"
+    )
+    weather_data = fetch_weather_data(request_to_get)
 
-    # Subtract one day from the execution datetime to get the target date
-    target_date = execution_datetime.subtract(days=1)
-    print(target_date)
+    tmp_path = write_list_to_json(data=weather_data, filename="test_run")
 
-    return target_date.to_date_string()
+    # Validate the data using Pydantic
+    print("starting source validation")
+    weather_data_model = WeatherData
 
-
-test_3 = get_target_date(logical_date='2024-05-27')
-print(f"{test_3=}")
+    try:
+        validated_data = validate_json_data(
+            json_path=tmp_path, weather_data_model=WeatherData
+        )
+        # Access and process the validated data here (validated_data is a list)
+    except Exception as e:
+        print(f"An error occurred during validation: {e}")
+    print("finished source validation")

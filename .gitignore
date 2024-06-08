@@ -244,3 +244,5 @@ $RECYCLE.BIN/
 *.lnk
 
 tmp/
+logs/
+.log
