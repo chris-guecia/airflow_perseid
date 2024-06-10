@@ -34,9 +34,6 @@ locations_config = [
     },
 ]
 
-OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
-local_tmp_dir = os.environ.get("local_tmp_dir")
-
 
 @dataclass(frozen=True)
 class OpenWeatherAPIDailyAggregateParameters:
@@ -109,7 +106,7 @@ def fetch_weather_data(
     return weather_data
 
 
-def write_list_to_json(data: List[Dict], filename: str) -> Path:
+def write_list_to_json(data: List[Dict], dir_path: str | Path) -> Path:
     """
     Writes a list of dictionaries to a JSON file.
 
@@ -117,9 +114,9 @@ def write_list_to_json(data: List[Dict], filename: str) -> Path:
         data: A list of dictionaries to be written to the file.
         filename: The name of the file to write to.
     """
-    named_file = f"raw_source_{data[0]['date']}_{filename}.json"
+    named_file = f"raw_source_{data[0]['date']}_test_.json"
     # Get the temporary directory using pathlib
-    tmp_dir = Path(local_tmp_dir)  # Assuming the tmp folder is at the root
+    tmp_dir = dir_path # Assuming the tmp folder is at the root
     # Create the file path with the filename in the temporary directory
     file_path = tmp_dir / named_file
 
@@ -158,40 +155,48 @@ class WeatherData(BaseModel):
     wind: Wind
 
 
-def validate_json_data(json_path: Path, weather_data_model: type) -> List:
+def validate_json_data(json_path: Path, valid_data_model: type) -> List:
     """
     Validates the JSON data in the specified file against the provided Pydantic model.
 
     Args:
         json_path (Path): The path to the JSON file.
-        weather_data_model (type): The Pydantic model class representing the expected data structure.
+        valid_data_model (type): The Pydantic model class representing the expected data structure.
 
     Returns:
         List: A list of validated data objects if successful, raises an exception otherwise.
 
     Raises:
+        ValueError: If json_path is None.
         ValidationError: If the JSON data fails validation against the Pydantic model.
     """
+    if json_path is None:
+        raise ValueError(f"{json_path=}. json_path cannot be None")
 
     try:
         with open(json_path, "r") as file:
             json_data = json.load(file)
 
         # Validate each item in the JSON data against the model
-        validated_data = [weather_data_model.parse_obj(item) for item in json_data]
+        validated_data = [valid_data_model.parse_obj(item) for item in json_data]
         return validated_data
 
     except ValidationError as e:
         raise Exception(f"Error validating JSON data: {e}") from e
 
 
+
+
 if __name__ == "__main__":
+    OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
+    local_tmp_dir = os.environ.get("local_tmp_dir")
+
     request_to_get = create_requests(
         locations=locations_config, api_key=OPENWEATHER_API_KEY, date="2024-06-08"
     )
     weather_data = fetch_weather_data(request_to_get)
 
-    tmp_path = write_list_to_json(data=weather_data, filename="test_run")
+    tmp_path = write_list_to_json(data=weather_data, dir_path=Path(local_tmp_dir) )
 
     # Validate the data using Pydantic
     print("starting source validation")
@@ -199,9 +204,11 @@ if __name__ == "__main__":
 
     try:
         validated_data = validate_json_data(
-            json_path=tmp_path, weather_data_model=WeatherData
+            json_path=tmp_path, valid_data_model=WeatherData
         )
-        # Access and process the validated data here (validated_data is a list)
     except Exception as e:
         print(f"An error occurred during validation: {e}")
     print("finished source validation")
+
+
+
