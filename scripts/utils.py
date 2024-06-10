@@ -23,14 +23,20 @@ def send_slack_notification(
         message += f"""
                     *Dag*: {context.get('task_instance').dag_id}
                     *Task*: {context.get('task_instance').task_id}
-                    *Execution Time*: {context.get('execution_date')}
+                    *task_start_time*: {context.get('task_instance').start_date}
+                    *data_interval_start*: {context.get('data_interval_start')}
+                    *data_interval_end*: {context.get('data_interval_end')}
+                    *logical_date*: {context.get('logical_date')}
                     *Log Url*: {context.get('task_instance').log_url}
                     """
     elif status == "success":
         message += f"""
                     *Dag*: {context['dag'].dag_id}
                     *Task*: {context.get('task_instance').task_id}
-                    *Execution Time*: {context['ts']}
+                    *task_start_time*: {context.get('task_instance').start_date}
+                    *data_interval_start*: {context.get('data_interval_start')}
+                    *data_interval_end*: {context.get('data_interval_end')}
+                    *logical_date*: {context.get('logical_date')}
                     """
     elif status == "retrying":
         task_instance = context.get("task_instance")
@@ -38,6 +44,10 @@ def send_slack_notification(
             message += f"""
                     *Dag*: {task_instance.dag_id}
                     *Task*: {task_instance.task_id}
+                    *task_start_time*:{task_instance.start_date}
+                    *data_interval_start*: {context.get('data_interval_start')}
+                    *data_interval_end*: {context.get('data_interval_end')}
+                    *logical_date*: {context.get('logical_date')}
                     *Retry Number*: {task_instance.try_number}
                     """
 
