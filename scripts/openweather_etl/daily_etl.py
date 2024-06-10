@@ -8,6 +8,8 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 import json
+import polars as pl
+import pandas as pd
 
 load_dotenv()
 
@@ -70,7 +72,7 @@ def set_target_date(logical_date: str) -> str:
 
 
 def create_requests(
-    locations: [Dict[str, Union[str, float]]], api_key: str | None, date: str
+        locations: [Dict[str, Union[str, float]]], api_key: str | None, date: str
 ) -> List[OpenWeatherAPIDailyAggregateParameters]:
     requests_to_send = []
     for item in locations:
@@ -86,7 +88,7 @@ def create_requests(
 
 
 def fetch_weather_data(
-    get_requests: List[OpenWeatherAPIDailyAggregateParameters], rate_limit: int = 10
+        get_requests: List[OpenWeatherAPIDailyAggregateParameters], rate_limit: int = 10
 ) -> List[Dict]:
     weather_data = []
     for request in get_requests:
@@ -112,13 +114,13 @@ def write_list_to_json(data: List[Dict], dir_path: str | Path) -> Path:
 
     Args:
         data: A list of dictionaries to be written to the file.
-        filename: The name of the file to write to.
+        dir_path: The name of the file to write to.
     """
-    named_file = f"raw_source_{data[0]['date']}_test_.json"
+    file_name = f"raw_source_{data[0]['date']}_test_.json"
     # Get the temporary directory using pathlib
-    tmp_dir = dir_path # Assuming the tmp folder is at the root
+    tmp_dir = dir_path  # Assuming the tmp folder is at the root
     # Create the file path with the filename in the temporary directory
-    file_path = tmp_dir / named_file
+    file_path = tmp_dir / file_name
 
     with open(file_path, "w") as f:
         json.dump(data, f, indent=4)  # Add indentation for readability
@@ -185,6 +187,128 @@ def validate_json_data(json_path: Path, valid_data_model: type) -> List:
         raise Exception(f"Error validating JSON data: {e}") from e
 
 
+# TRANSFORM
+def normalize_json_to_polars(json_file_path: Path) -> pl.DataFrame:
+    """
+    Reads a JSON file, flattens nested structures using pandas,
+    and converts the result to a Polars DataFrame.
+
+    Args:
+        json_file_path: Path to the JSON file.
+
+    Returns:
+        A Polars DataFrame containing the flattened data.
+    """
+
+    with open(json_file_path, "r") as file:
+        json_data = json.load(file)
+
+    # Flatten with pandas, using '_' as separator
+    flattened_df = pd.json_normalize(json_data, sep="_")
+
+    return pl.from_pandas(flattened_df)
+
+
+def stage_data(df_pl: pl.DataFrame, json_file_path: Path) -> pl.DataFrame:
+    source_file = str(json_file_path.name)
+    # Improved column renaming with dictionary comprehension
+    column_map = {
+        "lat": "latitude",
+        "lon": "longitude",
+        "tz": "time_zone",
+        "units": "measurement_unit"
+    }
+    df_pl = df_pl.rename(column_map)
+
+    df_staged = df_pl.with_columns(
+        pl.concat_str(
+            [
+                pl.col("latitude"),
+                pl.col("longitude"),
+                pl.col("date"),
+            ],
+            separator="_",
+        ).alias("weather_record_id"),
+
+        pl.lit(source_file).alias("source_file_name"),
+
+        pl.concat_str(
+            [
+                pl.col("latitude"),
+                pl.col("longitude"),
+                pl.col("time_zone"),
+            ],
+            separator="_",
+        ).alias("location_id")
+    )
+
+    return df_staged
+
+
+def split_to_fact_dimension(df):
+    """
+    Splits the prepared weather data dataframe into separate fact and dimension dataframes.
+
+    Args:
+        df (pl.DataFrame): The prepared weather data dataframe.
+
+    Returns:
+        tuple: A tuple containing two Polars dataframes - fact_table and dimension_table.
+    """
+    # Fact table columns (consider adjusting based on your schema)
+    fact_table_columns = [
+        "weather_record_id",
+        'location_id',
+        "measurement_unit",
+        # Weather data columns
+        "cloud_cover_afternoon",
+        "humidity_afternoon",
+        "precipitation_total",
+        "temperature_min",
+        "temperature_max",
+        "temperature_afternoon",
+        "temperature_night",
+        "temperature_evening",
+        "temperature_morning",
+        "pressure_afternoon",
+        "wind_max_speed",
+        "wind_max_direction",
+        "source_file_name"
+    ]
+
+    # Dimension table columns (consider adjusting based on your schema)
+    dimension_table_columns = ["location_id",
+                               "location_name",
+                               "latitude",
+                               "longitude",
+                               "source_file_name"]
+
+    fact_table = df.select(fact_table_columns)
+    dimension_table = df.select(dimension_table_columns)
+
+    return fact_table, dimension_table
+
+
+def write_df_to_parquet(df: pl.DataFrame, dir_path: str | Path):
+    file_name = f"raw_source_{df['date'].item(0)}_test_.json"
+    # Get the temporary directory using pathlib
+    tmp_dir = dir_path  # Assuming the tmp folder is at the root
+    # Create the file path with the filename in the temporary directory
+    file_path = tmp_dir / file_name
+    df.write_parquet(file=file_path)
+
+    return file_path
+
+
+# Persist to Postgres
+
+# db connection manager
+
+# ddl dim fact sql
+
+# temp table sql
+
+# merge statements
 
 
 if __name__ == "__main__":
@@ -196,7 +320,7 @@ if __name__ == "__main__":
     )
     weather_data = fetch_weather_data(request_to_get)
 
-    tmp_path = write_list_to_json(data=weather_data, dir_path=Path(local_tmp_dir) )
+    tmp_path = write_list_to_json(data=weather_data, dir_path=Path(local_tmp_dir))
 
     # Validate the data using Pydantic
     print("starting source validation")
@@ -209,6 +333,3 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"An error occurred during validation: {e}")
     print("finished source validation")
-
-
-

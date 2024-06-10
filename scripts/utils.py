@@ -7,8 +7,8 @@ def send_slack_notification(
     message: str,
     status: str,
     context=None,
-    token: str = os.environ.get('SLACK_API_TOKEN'),
-    channel: str = '#alerts-prescient'
+    token: str = os.environ.get("SLACK_API_TOKEN"),
+    channel: str = "#alerts-prescient",
 ):
     """Sends a Slack message with the given status and context."""
 
@@ -33,7 +33,7 @@ def send_slack_notification(
                     *Execution Time*: {context['ts']}
                     """
     elif status == "retrying":
-        task_instance = context.get('task_instance')
+        task_instance = context.get("task_instance")
         if task_instance:
             message += f"""
                     *Dag*: {task_instance.dag_id}

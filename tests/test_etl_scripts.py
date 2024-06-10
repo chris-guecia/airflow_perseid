@@ -110,4 +110,3 @@ def test_fetch_weather_data(mock_daily_summary_response):
     assert mocked_response[0]['lat'] == 39.9526
     assert mocked_response[0]['lon'] == -75.1652
     assert mocked_response[0]['date'] == '2024-06-07'
-    print(mocked_response)
