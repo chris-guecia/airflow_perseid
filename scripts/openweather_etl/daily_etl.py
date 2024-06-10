@@ -72,7 +72,7 @@ def set_target_date(logical_date: str) -> str:
 
 
 def create_requests(
-        locations: [Dict[str, Union[str, float]]], api_key: str | None, date: str
+    locations: [Dict[str, Union[str, float]]], api_key: str | None, date: str
 ) -> List[OpenWeatherAPIDailyAggregateParameters]:
     requests_to_send = []
     for item in locations:
@@ -88,7 +88,7 @@ def create_requests(
 
 
 def fetch_weather_data(
-        get_requests: List[OpenWeatherAPIDailyAggregateParameters], rate_limit: int = 10
+    get_requests: List[OpenWeatherAPIDailyAggregateParameters], rate_limit: int = 10
 ) -> List[Dict]:
     weather_data = []
     for request in get_requests:
@@ -216,7 +216,7 @@ def stage_data(df_pl: pl.DataFrame, json_file_path: Path) -> pl.DataFrame:
         "lat": "latitude",
         "lon": "longitude",
         "tz": "time_zone",
-        "units": "measurement_unit"
+        "units": "measurement_unit",
     }
     df_pl = df_pl.rename(column_map)
 
@@ -229,9 +229,7 @@ def stage_data(df_pl: pl.DataFrame, json_file_path: Path) -> pl.DataFrame:
             ],
             separator="_",
         ).alias("weather_record_id"),
-
         pl.lit(source_file).alias("source_file_name"),
-
         pl.concat_str(
             [
                 pl.col("latitude"),
@@ -239,7 +237,7 @@ def stage_data(df_pl: pl.DataFrame, json_file_path: Path) -> pl.DataFrame:
                 pl.col("time_zone"),
             ],
             separator="_",
-        ).alias("location_id")
+        ).alias("location_id"),
     )
 
     return df_staged
@@ -258,7 +256,7 @@ def split_to_fact_dimension(df):
     # Fact table columns (consider adjusting based on your schema)
     fact_table_columns = [
         "weather_record_id",
-        'location_id',
+        "location_id",
         "measurement_unit",
         # Weather data columns
         "cloud_cover_afternoon",
@@ -273,15 +271,17 @@ def split_to_fact_dimension(df):
         "pressure_afternoon",
         "wind_max_speed",
         "wind_max_direction",
-        "source_file_name"
+        "source_file_name",
     ]
 
     # Dimension table columns (consider adjusting based on your schema)
-    dimension_table_columns = ["location_id",
-                               "location_name",
-                               "latitude",
-                               "longitude",
-                               "source_file_name"]
+    dimension_table_columns = [
+        "location_id",
+        "location_name",
+        "latitude",
+        "longitude",
+        "source_file_name",
+    ]
 
     fact_table = df.select(fact_table_columns)
     dimension_table = df.select(dimension_table_columns)
